@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"io/ioutil"
 	"log"
@@ -12,6 +13,32 @@ import (
 
 	"github.com/bonana/poe-indexer/api"
 )
+
+// Function to read item filters
+func readFilter(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines, scanner.Err()
+}
+
+// Function to match type to line in our filter
+func matchFilter(s string, list []string) bool {
+	for _, b := range list {
+		if s == b {
+			return true
+		}
+	}
+	return false
+}
 
 // To make sure we don't go through several terabytes of data we should grab a recent ID. This is something we can get from the helpful poe.ninja.
 func getRecentChangeId() (string, error) {
@@ -37,15 +64,29 @@ func getRecentChangeId() (string, error) {
 	return stats.NextChangeId, nil
 }
 
-func processStash(stash *api.Stash) {
+func processStash(stash *api.Stash, filters []string) {
 	for _, item := range stash.Items {
-		if item.Type == "Ancient Reliquary Key" {
-			log.Printf("Ancient Reliquary Key: account = %v, league = %v, note = %v, tab = %v", stash.accountName, item.League, item.Note, stash.Label)
+		if matchFilter(item.Type, filters) {
+			// Some items miss names, use type instead.
+			name := item.Type
+
+			// If item has specific name use that instead.
+			if item.Name != "" {
+				name = item.Name
+			}
+
+			log.Printf("Found matching item: name = %v, account = %v, league = %v, note = %v, tab = %v, character = %v", name, stash.AccountName, item.League, item.Note, stash.Label, stash.LastCharacterName)
 		}
 	}
 }
 
 func main() {
+	log.Printf("loading item filters")
+	filters, err := readFilter("poe.filter")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	log.Printf("requesting a recent change id from poe.ninja...")
 	recentChangeId, err := getRecentChangeId()
 	if err != nil {
@@ -71,7 +112,7 @@ func main() {
 			continue
 		}
 		for _, stash := range result.PublicStashTabs.Stashes {
-			processStash(&stash)
+			processStash(&stash, filters)
 		}
 	}
 }
